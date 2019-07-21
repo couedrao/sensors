@@ -1,2 +1,2 @@
 # sensors
-om2m sensors generator
+onem2m sensors generator
