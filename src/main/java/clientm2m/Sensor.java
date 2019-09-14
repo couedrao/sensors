@@ -9,13 +9,14 @@ import java.util.concurrent.ThreadLocalRandom;
 
 import com.opencsv.CSVWriter;
 
-
 public class Sensor extends Thread {
 	private int sensorID;
 	private int lambda[];
 	private String target;
 	private int reqnb;
 	private List<Long[]> result = new ArrayList<Long[]>();
+	private List<Thread> arrThreads = new ArrayList<Thread>();
+	static int i = 0;
 
 	public Sensor(int AppID, int lambda[], String target, int reqnb) {
 		this.lambda = lambda;
@@ -26,7 +27,7 @@ public class Sensor extends Thread {
 
 	public void run() {
 		logger("Sensor " + sensorID + " running");
-		int i = 0;
+
 		while (i < reqnb) {
 			// gen temp val
 			int val = ThreadLocalRandom.current().nextInt(-50, 50 + 1);
@@ -39,17 +40,29 @@ public class Sensor extends Thread {
 					+ "      &lt;/obj&gt;\r\n" + "    </con>\r\n" + "</m2m:cin>";
 
 			// creat DATA INSTANCE
-			new Thread(() -> {
+			Thread t = new Thread(() -> {
 				result.add(new Post().postm2m(myinst + "", target, 4, reqnb));
-			}).start();
-
+			});
+			t.start();
+			arrThreads.add(t);
 			try {
 				Thread.sleep(lambda[i]);
 				i++;
 			} catch (InterruptedException e) {
 				logger(e.getMessage());
 			}
+		}
 
+		for (int j = 0; j < reqnb; j++) {
+			try {
+				arrThreads.get(j).join();
+			} catch (InterruptedException e) {
+				logger(e.getMessage());
+			}
+		}
+		for (int j = 0; j < reqnb; j++) {
+			if (arrThreads.get(j).isAlive())
+				logger("Thread " + j + " is alive: ");
 		}
 		try {
 			saveLog();
@@ -60,9 +73,10 @@ public class Sensor extends Thread {
 	}
 
 	private void saveLog() throws IOException {
-		String home = System.getProperty("user.home");
+		// String home = System.getProperty("user.home");
 		String fs = System.getProperty("file.separator");
-		String path = home + fs + "Logs" + fs + "Sensor_" + sensorID + "_" + System.currentTimeMillis() + ".csv";
+		String home = System.getProperty("user.dir");
+		String path = home + fs + "Sensor_" + sensorID + "_" + System.currentTimeMillis() + ".csv";
 
 		File file = new File(path);
 		if (file.createNewFile()) {
@@ -75,11 +89,11 @@ public class Sensor extends Thread {
 
 		writer.writeNext(new String[] { "Request", "Status", "RTT" });
 
+		// System.out.println("result length" +result.size());
 		logger("----------------------------------------------------------");
-		for (int j = 0; j < reqnb; j++) {
+		for (int j = 0; j < result.size(); j++) {
 			logger("Sensor " + sensorID + "\t| Request " + j + "\t| Status : " + result.get(j)[0] + "\t| RTT : "
 					+ result.get(j)[1]);
-
 			writer.writeNext(new String[] { j + "", result.get(j)[0] + "", result.get(j)[1] + "" });
 		}
 		writer.close();
