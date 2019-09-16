@@ -5,7 +5,15 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 import com.opencsv.CSVWriter;
 
@@ -13,24 +21,34 @@ public class Sensor extends Thread {
 	private int sensorID;
 	private int lambda[];
 	private String target;
+	private boolean img;
 	private int reqnb;
 	private List<Long[]> result = new ArrayList<Long[]>();
-	private List<Thread> arrThreads = new ArrayList<Thread>();
+	// private List<Thread> arrThreads = new ArrayList<Thread>();
 	static int i = 0;
+	List<Callable<Long[]>> callableTasks = new ArrayList<>();
+	ScheduledExecutorService executorService = Executors.newScheduledThreadPool(reqnb);
 
-	public Sensor(int AppID, int lambda[], String target, int reqnb) {
+	public Sensor(int AppID, int lambda[], String target, int reqnb, boolean img) {
 		this.lambda = lambda;
 		this.target = target;
 		this.sensorID = AppID;
 		this.reqnb = reqnb;
+		this.img = img;
+
 	}
 
 	public void run() {
 		logger("Sensor " + sensorID + " running");
 
-		while (i < reqnb) {
-			// gen temp val
-			int val = ThreadLocalRandom.current().nextInt(-50, 50 + 1);
+		Post[] tasks = new Post[reqnb];
+
+		for (int i = 0; i < reqnb; i++) {
+			String val;
+			if (img)
+				val = Main.getImgbody();
+			else
+				val = "" + ThreadLocalRandom.current().nextInt(-50, 50 + 1);
 			String myinst = "<m2m:cin xmlns:m2m=\"http://www.onem2m.org/xml/protocols\">\r\n"
 					+ "    <cnf>message</cnf>\r\n" + "    <con>\r\n" + "      &lt;obj&gt;\r\n"
 					+ "        &lt;str name=&quot;appId&quot; val=&quot;MY_SENSOR&quot;/&gt;\r\n"
@@ -38,36 +56,27 @@ public class Sensor extends Thread {
 					+ "        &lt;int name=&quot;data&quot; val=&quot;" + val + "&quot;/&gt;\r\n"
 					+ "        &lt;int name=&quot;unit&quot; val=&quot;celsius&quot;/&gt;\r\n"
 					+ "      &lt;/obj&gt;\r\n" + "    </con>\r\n" + "</m2m:cin>";
-
-			// creat DATA INSTANCE
-			Thread t = new Thread(() -> {
-				result.add(new Post().postm2m(myinst + "", target, 4, reqnb));
-			});
+			tasks[i] = new Post(myinst, target, 4);
+			Thread t = new Thread(tasks[i]);
 			t.start();
-			arrThreads.add(t);
 			try {
 				Thread.sleep(lambda[i]);
-				i++;
 			} catch (InterruptedException e) {
-				logger(e.getMessage());
+				logger(e.getLocalizedMessage());
 			}
 		}
 
-		for (int j = 0; j < reqnb; j++) {
+		for (int i = 0; i < reqnb; i++)
 			try {
-				arrThreads.get(j).join();
+				result.add(tasks[i].get());
 			} catch (InterruptedException e) {
-				logger(e.getMessage());
+				logger(e.getLocalizedMessage());
 			}
-		}
-		for (int j = 0; j < reqnb; j++) {
-			if (arrThreads.get(j).isAlive())
-				logger("Thread " + j + " is alive: ");
-		}
+
 		try {
 			saveLog();
 		} catch (IOException e) {
-			logger(e.getMessage());
+			logger(e.getLocalizedMessage());
 		}
 
 	}
@@ -99,7 +108,7 @@ public class Sensor extends Thread {
 		writer.close();
 	}
 
-	public boolean inititialization() {
+	public boolean inititialization() throws InterruptedException {
 		// 2001 = created AND 4105= already exist
 
 		int status;
@@ -108,14 +117,21 @@ public class Sensor extends Thread {
 				+ "\" >\r\n" + "    <api>app-sensor</api>\r\n"
 				+ "    <lbl>Type/sensor Category/temperature Location/home</lbl>\r\n" + "    <rr>false</rr>\r\n"
 				+ "</m2m:ae>";
-		status = new Post().postm2m(mysensor, target, 2, -2)[0].intValue();
+		Post task = new Post(mysensor, target, 2);
+		new Thread(task).start();
+		status = task.get()[0].intValue();
+
 		if (status != 2001 && status != 4105)
 			return false;
 
 		// create DATA CNT
 		String mydata = "<m2m:cnt xmlns:m2m=\"http://www.onem2m.org/xml/protocols\" rn=\"DATA\">\r\n" + "</m2m:cnt>";
 		target += "/in-name/SENSOR" + sensorID;
-		status = new Post().postm2m(mydata, target, 3, -1)[0].intValue();
+
+		task = new Post(mydata, target, 3);
+		new Thread(task).start();
+		status = task.get()[0].intValue();
+
 		if (status != 2001 && status != 4105)
 			return false;
 
@@ -129,7 +145,10 @@ public class Sensor extends Thread {
 				+ "    </con>\r\n" + "</m2m:cin>";
 
 		target += "/DATA";
-		status = new Post().postm2m(myinst + "", target, 4, reqnb)[0].intValue();
+		task = new Post(myinst + "", target, 4);
+		new Thread(task).start();
+		status = task.get()[0].intValue();
+
 		if (status != 2001 && status != 4105)
 			return false;
 

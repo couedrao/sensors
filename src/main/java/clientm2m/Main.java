@@ -1,5 +1,6 @@
 package clientm2m;
 
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.Arrays;
@@ -7,16 +8,20 @@ import java.util.List;
 import java.util.Properties;
 import java.util.stream.Collectors;
 
+import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.math3.distribution.PoissonDistribution;
 import org.apache.commons.math3.stat.descriptive.DescriptiveStatistics;
 
 public class Main {
 	private static String target;
+	private static String imgurl;
+	private static String imgbody;
 	private static int sensornb;
 	private static Sensor[] sensors;
 	private static List<Integer> lambdas;
 	private static List<Integer> reqnb;
 	private static List<Boolean> poisson;
+	private static List<Boolean> img;
 
 	public static void main(String[] args) {
 		// Get config
@@ -38,12 +43,16 @@ public class Main {
 				System.out.print(Integer.parseInt(sample[j] + "") + ", ");
 			}
 			System.out.println();
-			
+
 			//
-			sensors[i] = new Sensor(i, sample, target, reqnb.get(i));
-			if (!sensors[i].inititialization()) {
-				logger("Sensor" + i + " Not inititialized");
-				return;
+			sensors[i] = new Sensor(i, sample, target, reqnb.get(i), img.get(i));
+			try {
+				if (!sensors[i].inititialization()) {
+					logger("Sensor" + i + " Not inititialized");
+					return;
+				}
+			} catch (InterruptedException e) {
+				logger(e.getLocalizedMessage());
 			}
 		}
 
@@ -80,7 +89,7 @@ public class Main {
 		} catch (IOException ex) {
 			logger(ex.getMessage());
 		}
-
+		imgurl = prop.getProperty("imgurl");
 		target = prop.getProperty("target");
 		sensornb = Integer.parseInt(prop.getProperty("sensornb"));
 		lambdas = Arrays.asList(prop.getProperty("lambdas").split(",")).stream().map(s -> Integer.parseInt(s.trim()))
@@ -89,6 +98,8 @@ public class Main {
 				.collect(Collectors.toList());
 		poisson = Arrays.asList(prop.getProperty("poisson").split(",")).stream()
 				.map(s -> Boolean.parseBoolean(s.trim())).collect(Collectors.toList());
+		img = Arrays.asList(prop.getProperty("img").split(",")).stream().map(s -> Boolean.parseBoolean(s.trim()))
+				.collect(Collectors.toList());
 		sensors = new Sensor[sensornb];
 
 		// Print the step.
@@ -97,9 +108,24 @@ public class Main {
 		loggerformatted("%-15s %1s %-20s %n", "Target", ":", target + "");
 		loggerformatted("%-15s %1s %-20s %n", "Sensor number", ":", sensornb + "");
 		loggerformatted("%-15s %1s %-20s %n", "Lambdas", ":", lambdas.toString());
-		loggerformatted("%-15s %1s %-20s %n", "Poisonnien", ":", poisson.toString());
+		loggerformatted("%-15s %1s %-20s %n", "Poison", ":", poisson.toString());
+		loggerformatted("%-15s %1s %-20s %n", "Image URL", ":", imgurl + "");
+		loggerformatted("%-15s %1s %-20s %n", "Send Image", ":", img.toString());
 		loggerformatted("%-15s %1s %-20s %n", "Request number", ":", reqnb.toString());
 		logger("--------------------------------------------------");
+
+		try {
+			setImgbody(encodeFileToBase64Binary(new File(imgurl)));
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+
+	@SuppressWarnings("resource")
+	private static String encodeFileToBase64Binary(File file) throws Exception {
+		byte[] bytes = new byte[(int) file.length()];
+		new FileInputStream(file).read(bytes);
+		return new String(Base64.encodeBase64(bytes), "UTF-8");
 	}
 
 	static void logger(String log) {
@@ -109,5 +135,13 @@ public class Main {
 	static void loggerformatted(String str1, String str2, String str3, String str4) {
 		System.out.printf(str1, str2, str3, str4);
 
+	}
+
+	public static String getImgbody() {
+		return imgbody;
+	}
+
+	public static void setImgbody(String imgbody) {
+		Main.imgbody = imgbody;
 	}
 }
